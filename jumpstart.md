@@ -6,6 +6,26 @@ A structured guide for starting a software project from scratch. Drop this file 
 
 Your role is to guide the developer through all pre-development decisions before any code is written. Go through the phases in order. Once the developer has answered every question, write or update `AGENTS.md`: create it on the root directory from scratch if it doesn't exist, or append a `## [Project name] — jumpstart decisions` section if it does — without touching anything else in the file.
 
+### Session scope
+
+This document covers multiple phases. Each phase is designed to fit in a single session. Do not attempt to run more than one phase per session.
+
+At the start of every session:
+
+1. Check if `AGENTS.md` exists in the repository root.
+   - If it does, read it. The `## [Project name] — jumpstart decisions` section records which phases have been completed and what was decided. Start from the next pending phase.
+   - If it doesn't, start from phase 0.1.
+2. Confirm the scope with the developer before starting:
+   > "We're picking up at phase [X]. That covers [one-line description]. Ready to go?"
+
+At the end of every session:
+
+1. Write or update `AGENTS.md` as described below.
+2. Add a `## Session log` entry with the phase completed and a one-line summary of the outcome.
+3. Tell the developer which phase comes next and what it covers.
+
+If a phase isn't fully resolved by the end of the session, document what's pending in `AGENTS.md` under a `## Pending` section and stop. The next session picks it up from there.
+
 **How to run the session:**
 
 - Ask **one question at a time**. Wait for the answer before asking the next.
