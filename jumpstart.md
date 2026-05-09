@@ -561,3 +561,108 @@ Record in AGENTS.md:
 - If deferred: why, and what signal would trigger a revisit
 
 Then continue to Phase 1.
+
+--- 
+
+## 1.1 — Containerization
+
+> Do not ask the developer whether to use Docker. Work through the decision tree below
+> using the project profile from phase 0.2. Present the recommendation with brief
+> reasoning, then confirm before moving on.
+
+---
+
+#### Decision tree
+
+**Q1 — What is the output of this project?**
+
+- A library or package (distributed via npm, pip, or similar) → **No Docker.** Nothing
+  to containerize. Skip the rest of this section.
+- A native desktop or mobile app → **No Docker.** The IDE manages the environment. Skip
+  the rest of this section.
+- A local script with no deployment intent (throwaway tool) → **No Docker.** No
+  reproducibility concern. Skip the rest of this section.
+- Anything else → continue to Q2.
+
+---
+
+**Q2 — Where does this project deploy?**
+
+- A platform that fully manages the runtime for all environments (Vercel, Netlify,
+  Cloudflare Pages, serverless) → **No Docker.** The platform handles the runtime end
+  to end. Skip the rest of this section.
+- Self-managed infrastructure for all environments (VPS, Raspberry Pi, Coolify) →
+  **Docker for all environments.** Continue to Q3.
+- Mixed: self-managed for staging, managed platform for production → **Docker for
+  staging only.** The Dockerfile lives in the repo; the production platform ignores it.
+  Continue to Q3.
+
+---
+
+#### What Docker covers here
+
+- **Local dev and staging:** `docker-compose.yml` at the project root. Defines the app
+  and any services it depends on (database, cache, queue). One command starts the full
+  environment. No local dependency installation required beyond Docker itself.
+
+- **Production image (self-managed environments):** a `Dockerfile` with a multi-stage
+  build. The dev stage is used by compose locally; the production stage produces the
+  deployable image. The agent builds this based on the framework and runtime decided in
+  phase 2.2.
+
+---
+
+#### Multiple environments with different deploy targets
+
+A common pattern: staging runs on self-managed infrastructure (a Raspberry Pi, a VPS),
+production runs on a managed platform (Vercel, Netlify, fly.io). These targets coexist
+in the same repository without conflict.
+
+Typical branch strategy:
+staging  →  self-managed host (Docker)
+main     →  managed platform (no Docker)
+
+The managed platform only reads what it needs to build the project (framework config,
+build command, output directory). It ignores `Dockerfile`, `docker-compose.yml`, and
+`.dockerignore` entirely — these files do not interfere with the platform build in any
+way. There is no need to exclude them or maintain separate branches for this reason.
+
+CI handles routing: one job deploys to the self-managed host on pushes to `staging`,
+another triggers or defers to the platform on pushes to `main`. This is covered in 1.2.
+
+---
+
+#### When not to use Docker
+
+- The project is a library, package, native app, or local throwaway script.
+- All environments deploy to a managed platform that handles the runtime end to end.
+
+In all other cases, Docker is the default. This includes frontend-only projects on
+self-managed infrastructure — a container gives you port assignment, process isolation,
+clean restarts, and log access without polluting the host system.
+
+---
+
+#### File conventions
+
+- Use `docker-compose.yml` — recognized by CI runners, Coolify, Portainer, and most
+  tooling without additional configuration. The newer `compose.yml` name is not yet
+  universally supported.
+- Always include `.dockerignore` alongside any `Dockerfile`. The agent creates it when
+  creating the Dockerfile.
+
+---
+
+> **Notes for the agent:** Do not create `Dockerfile`, `docker-compose.yml`, or
+> `.dockerignore` during this phase. Record the decision in `AGENTS.md` and create the
+> files when scaffolding the project at the start of implementation.
+>
+> Managed platforms (Vercel, Netlify, Cloudflare Pages, fly.io, and similar) ignore
+> Docker-related files completely. Do not remove or restructure them on the assumption
+> that they will cause a build conflict — they will not.
+> **Dockerfile vs. docker-compose.yml:** A `Dockerfile` is only needed if the project
+> builds its own image — i.e. the repository contains application code that gets
+> packaged into a container. If the project only orchestrates third-party services
+> (databases, caches, queues) using official images, `docker-compose.yml` is sufficient
+> and no `Dockerfile` is needed. The agent determines which applies once the stack is
+> decided in phase 2.2.
