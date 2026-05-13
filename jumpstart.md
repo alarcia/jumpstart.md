@@ -560,7 +560,7 @@ Record in AGENTS.md:
 - If multirepo: how inter-repo dependencies will be managed
 - If deferred: why, and what signal would trigger a revisit
 
-Then continue to Phase 1.
+Then continue to 1.1
 
 --- 
 
@@ -660,9 +660,349 @@ clean restarts, and log access without polluting the host system.
 > Managed platforms (Vercel, Netlify, Cloudflare Pages, fly.io, and similar) ignore
 > Docker-related files completely. Do not remove or restructure them on the assumption
 > that they will cause a build conflict — they will not.
+
 > **Dockerfile vs. docker-compose.yml:** A `Dockerfile` is only needed if the project
 > builds its own image — i.e. the repository contains application code that gets
 > packaged into a container. If the project only orchestrates third-party services
 > (databases, caches, queues) using official images, `docker-compose.yml` is sufficient
 > and no `Dockerfile` is needed. The agent determines which applies once the stack is
 > decided in phase 2.2.
+
+Then continue to 1.2
+
+---
+
+## 1.2 — CI/CD
+
+> This section covers pipeline structure, runner choice, triggers, and secrets management. Branch strategy is inherited from 1.1: `staging` deploys to self-managed infrastructure, `main` deploys to the managed platform (or is the only branch if there is no managed platform).
+
+---
+
+#### When to skip this phase
+
+If the project profile from 0.2 is `type = personal tool + lifespan = throwaway`, CI/CD is optional. A local `git push` and manual deploy is enough. You can return to this section if the project outlives its original scope.
+
+For everything else, set it up from the start. Retrofitting CI is tedious.
+
+---
+
+#### Runner choice
+
+For projects with a self-managed staging environment (Raspberry Pi, VPS, Coolify), use a **self-hosted runner** installed directly on that machine.
+
+- No open ports or public IP required — the runner initiates the connection to GitHub, not the other way around.
+- GitHub treats it as a normal runner. The only difference in the workflow YAML is the `runs-on` label.
+- Install one runner per project with a dedicated folder and a descriptive name. Register each as a separate systemd service so they start automatically on reboot.
+- If the runner machine is down, jobs queue until it comes back. This is expected behavior for self-managed infrastructure — not a reason to avoid it.
+
+**Alternative — SSH deploy from a GitHub-hosted runner:** a job runs on GitHub's infrastructure and SSHes into the target machine to execute deploy commands remotely. This requires the target machine to be reachable from the internet (public IP or a tunnel). For most personal setups this is unnecessary complexity. Mentioned here for completeness; not the recommended default.
+
+---
+
+#### Pipeline structure
+
+One workflow file per environment. Each file declares which branch it listens to — GitHub executes them independently and they never interfere with each other. A push to `staging` triggers only the staging workflow; a merge to `main` triggers only the production workflow.
+
+Each workflow contains two sequential jobs: **test** (lint, type-check, unit tests) and **deploy** (build and release to the target environment). Deploy only runs if test passes.
+
+For production on a managed platform (Vercel, Netlify, fly.io): the platform deploys automatically on push to `main` via its own GitHub integration. The production workflow only needs a test job — no deploy job required.
+
+---
+
+#### Secrets management
+
+Not all environment variables are secrets. Distinguish between:
+
+- **Secrets** — credentials, tokens, signing keys, anything that grants access or could cause damage if leaked. Examples: `DATABASE_URL`, `STRIPE_SECRET_KEY`, `SMTP_PASSWORD`, `JWT_SECRET`.
+- **Non-sensitive config** — values that vary by environment but carry no risk if seen. Examples: `TELEGRAM_BOT_USERNAME`, `PUBLIC_API_URL`, `APP_NAME`, `PORT`, `NODE_ENV`.
+
+Store secrets in **GitHub repository secrets** (`Settings → Actions → Secrets and variables`). They are injected as environment variables at runtime and never exposed in logs. Non-sensitive config can live in the workflow file directly or in **GitHub Actions variables** (same location, unencrypted).
+
+**Consider avoiding writing a `.env` file to disk on the server if possible.** If an attacker gains filesystem access, a `.env` is an easy target. Instead, inject variables directly into the container from the CI environment — the runner receives them from GitHub Secrets and passes them to Docker at deploy time. For build-time secrets, Docker BuildKit supports `--mount=type=secret` to make a secret available during a build step without baking it into any image layer.
+
+Keep a `.env.example` in the repo with every variable name and a short description, but no values. This is the canonical reference for what variables the project needs — covered in phase 3.1.
+
+If secret count grows beyond ~10, or if the same secrets are shared across multiple repositories, consider a dedicated secrets manager (Doppler, Infisical). For most personal projects, GitHub Secrets is sufficient.
+
+---
+
+> **Note for the agent:** Do not create workflow files during this phase. Record the pipeline structure and runner decision in `AGENTS.md`. Create the files when scaffolding the project at the start of implementation, once the stack from phase 2.2 is known — the test and build steps depend on it.
+
+Then continue to 1.3
+
+---
+
+## 1.3 — Hosting
+
+> This phase determines where the project runs across environments. The goal is to
+> establish a clear path from local development to production before any infrastructure
+> is configured.
+>
+> Do not pick tools. Pick the shape of the deployment. Tools get decided once the stack
+> is known (phase 2.2).
+
+---
+
+#### The three environments
+
+Most projects need three environments. Some need fewer. None need more at this stage.
+
+| Environment | Purpose | Who uses it |
+|---|---|---|
+| **Local** | Active development. Fast iteration, no stability requirement. | Developer only |
+| **Staging** | Integration testing. Stable enough to test against real data and services. | Developer, sometimes collaborators |
+| **Production** | Live, user-facing. Stability and uptime matter. | End users |
+
+Personal tools and throwaway projects often collapse local and staging, or skip staging
+entirely. If the project profile from 0.2 is `personal tool + throwaway`, one environment
+(local) is enough. Flag it and skip to the production question.
+
+---
+
+#### Local development
+
+Local development is always Docker Compose if the project has a backend or services to
+run (as decided in 1.1). No questions needed here — the decision was made in 1.1.
+
+If the project is frontend-only on a managed platform, local development is the
+framework's dev server (`next dev`, `vite`, etc.). Nothing to configure at this stage.
+
+---
+
+#### Staging
+
+Ask the developer:
+
+> "Where will staging run?
+>
+> - A) **Self-managed machine** — a Raspberry Pi, a home server, or a spare machine
+>   you control
+> - B) **Cheap VPS** — a small cloud VM (Hetzner, DigitalOcean, Vultr — €3–6/month)
+> - C) **Same platform as production** — a separate environment on Vercel, fly.io, etc.
+> - D) **No staging** — I'll test locally and go straight to production"
+
+Notes per option:
+
+**A — Self-managed machine:** Full control, zero cost, zero uptime guarantee. Ideal for
+personal projects where staging going down is not a problem. Requires: Docker installed
+on the machine, SSH access, a way to receive webhooks from CI (either a public IP,
+a tunnel like Cloudflare Tunnel, or ngrok). If the machine is a Raspberry Pi, use a
+64-bit OS image and arm64-compatible base images in Docker.
+
+**B — Cheap VPS:** Same workflow as A, but more reliable and publicly reachable without
+tunneling. Recommended for internal tools or public projects where staging availability
+matters. Hetzner CAX11 (arm64, 2GB RAM, €3.29/month) is a good default — small, cheap,
+and Docker-ready.
+
+**C — Platform staging environment:** Simplest to maintain. Costs extra if the platform
+charges per environment. Appropriate when production is already on that platform and
+environment parity matters.
+
+**D — No staging:** Acceptable for personal tools, experiments, or projects where the
+developer has high confidence from local testing. Flag the risk: production becomes the
+only environment, so failures are user-facing.
+
+---
+
+#### Production
+
+Ask the developer:
+
+> "Where will production run? Pick the closest:
+>
+> - A) **Managed platform** (Vercel, Netlify, Cloudflare Pages/Workers, fly.io, Railway,
+>   Render) — they handle servers, scaling, and deployment
+> - B) **Self-managed with a panel** (Coolify, Dokku, CapRover on a VPS) — you own the
+>   server, the panel handles deploy logic
+> - C) **Bare self-managed** (raw VPS, Docker Compose, manual or CI-triggered deploys)
+>   — full control, full responsibility
+> - D) **Same machine as staging** — production and staging share a host (acceptable for
+>   personal tools, not for anything user-facing)"
+
+Notes per option:
+
+**A — Managed platform:** Lowest operational overhead. No servers to maintain. Most
+support zero-downtime deploys, preview environments, and automatic HTTPS out of the box.
+The right default for public-facing projects unless there's a specific reason to
+self-host. Main constraint: vendor lock-in and pricing at scale.
+
+Common choices by project type:
+- Frontend-only or Next.js: **Vercel** (zero config, tight Next.js integration)
+- Full-stack with containers: **fly.io** (Docker-native, global edge, generous free tier)
+- Full-stack with more control: **Railway** or **Render** (simpler than fly.io,
+  slightly less control)
+- Static sites: **Cloudflare Pages** (fastest CDN, free tier is generous)
+
+**B — Self-managed with a panel:** Middle ground. You pay for a VPS (typically €5–20/month
+depending on size), Coolify or Dokku handles deploy pipelines, HTTPS, and reverse proxy.
+You get Docker-based deploys without writing Kubernetes. Good for developers who want
+control but not raw infrastructure work. Coolify is the current recommended default —
+actively maintained, supports Docker Compose projects natively, has a usable UI.
+
+**C — Bare self-managed:** Maximum control, maximum overhead. Suitable only if there's
+a specific reason (compliance, unusual hardware, cost at high scale). Requires managing
+SSL renewal, reverse proxy config (Nginx, Caddy), process supervision, and log
+aggregation manually or via custom automation.
+
+**D — Same machine as staging:** Only acceptable for personal tools with no real users.
+A staging deploy that goes wrong can take down production. Note it explicitly in
+AGENTS.md if chosen.
+
+---
+
+#### Domain and DNS
+
+Do not resolve this in full here — it's covered in 4.1. But note:
+
+- Production should have its own domain. If the developer doesn't have one yet, flag it.
+- Staging can run on a subdomain of a domain the developer already controls, or on the
+  host's IP directly if staging is internal only.
+
+---
+
+#### Record for AGENTS.md
+
+At the end of this phase, note:
+
+- Local: framework dev server / Docker Compose (from 1.1)
+- Staging: option chosen (A–D), machine type if A/B, platform if C
+- Production: option chosen (A–D), specific platform or panel if applicable
+- Any constraints: arm64 requirement, cost ceiling, existing infrastructure
+
+Then continue to Phase 2.
+
+---
+
+## Annex B — Distribution
+
+> Run this annex if or when you decide to make the project available as a distributable package. It is not necessarily part of the initial jumpstart flow.
+>
+> If distribution is clear from the start (e.g. "I'm building an npm library"), run this annex immediately after phase 0.2. Otherwise, come back to it when the need arises.
+
+Then continue to 1.3
+
+---
+
+### Before asking anything
+
+From the project profile (phase 0.2) and the current state of the project, you already know:
+
+- What the project produces (a library, a CLI, an app, a backend)
+- What runtime or ecosystem it targets (Node.js, Python, Rust, Swift, etc.)
+- Whether it's already live or still in early development
+
+Use this to skip irrelevant distribution channels. Do not present options that can't apply.
+
+---
+
+### Q1 — What are you distributing?
+
+> "What form does the distributable take? Pick the closest:
+>
+> - A) A library or package (imported by other code)
+> - B) A CLI tool (run from the terminal)
+> - C) A desktop app (macOS, Windows, Linux)
+> - D) A mobile app (iOS, Android)
+> - E) Something else"
+
+Route to the relevant section below based on the answer. More than one may apply — e.g. a CLI that's also published as a library.
+
+---
+
+### A — Library or package
+
+**Channels:** npm (JavaScript/TypeScript), PyPI (Python), crates.io (Rust), JSR (Deno/modern JS).
+
+**Decisions to make:**
+
+- **Package name:** is the name available on the target registry? Check before committing.
+- **Scope:** public unscoped (`my-lib`), public scoped (`@myname/my-lib`), or private? Scoped is recommended — avoids naming conflicts and signals authorship.
+- **Versioning:** use semantic versioning. Automate it — do not bump versions manually. Tools: `changesets` (monorepos and libraries), `semantic-release` (CI-driven, fully automated), `np` (simple interactive releases for single packages).
+- **What goes in the package:** configure `files` in `package.json` (or equivalent). Only ship what consumers need — no source maps, no test files, no config files unless they're part of the API.
+- **Dual formats (JS/TS only):** does this need to ship both ESM and CJS? Most modern tooling (Vite, tsup, unbuild) handles this. Decide upfront — retrofitting dual output is painful.
+- **Types:** always ship TypeScript declarations (`.d.ts`). If the source is JS, generate them. If the source is TS, emit them as part of the build.
+
+**CI additions:**
+
+- Publish step triggered on version tag (`v*.*.*`) or on merge to `main` with a new version.
+- Requires a registry token stored as a CI secret (`NPM_TOKEN`, `PYPI_TOKEN`, etc.).
+- Run tests and build before publishing. Never publish from a local machine.
+
+---
+
+### B — CLI tool
+
+**Channels depend on the ecosystem:**
+
+| Runtime | Primary channel | Secondary |
+|---|---|---|
+| Node.js | npm (with `bin` field) | Homebrew tap |
+| Python | PyPI (with entry point) | Homebrew tap, pipx |
+| Go | Homebrew tap, GitHub Releases | winget, Scoop |
+| Rust | crates.io, GitHub Releases | Homebrew tap, winget |
+| Compiled binary | GitHub Releases | Homebrew tap, Scoop |
+
+**Decisions to make:**
+
+- **Installation method for end users:** what's the one-liner you want people to run? Work backwards from that.
+- **Homebrew tap vs formula:** a personal tap (`homebrew-tap` repo under your GitHub account) is the fastest path. Getting into `homebrew-core` requires broader adoption and a review process — not a day-one decision.
+- **Binary distribution:** if the CLI is compiled (Go, Rust), use GitHub Releases with pre-built binaries per platform. Tools like `goreleaser` (Go) or `cargo-dist` (Rust) automate cross-platform builds and release uploads.
+- **Versioning:** same as libraries. Tag-driven releases.
+
+**CI additions:**
+
+- Cross-platform build matrix if distributing binaries (linux/amd64, darwin/arm64, darwin/amd64, windows/amd64).
+- Release job triggered on version tag.
+- Homebrew tap update can be automated: `goreleaser` and `cargo-dist` both support tap formula generation.
+
+---
+
+### C — Desktop app
+
+**Channels by platform:**
+
+| Platform | Primary | Notes |
+|---|---|---|
+| macOS | Direct download (DMG/PKG), Mac App Store | App Store requires Apple Developer account ($99/yr), sandboxing, review |
+| Windows | Direct download (EXE/MSI), Microsoft Store, winget | winget submission via GitHub PR to `microsoft/winget-pkgs` |
+| Linux | AppImage, Flatpak, Snap, `.deb`/`.rpm` | AppImage is the most portable; Flatpak via Flathub has the widest reach |
+
+**Decisions to make:**
+
+- **Code signing:** mandatory for macOS (Gatekeeper blocks unsigned apps) and Windows (SmartScreen warnings). Requires certificates — Apple Developer Program for macOS, a code signing cert for Windows.
+- **Auto-update:** if distributing outside an app store, you need an update mechanism. Most Electron/Tauri frameworks include one.
+- **App stores vs direct:** stores add friction (review, fees, restrictions) but provide discoverability and trust. Direct distribution is faster but requires more trust-building.
+
+**CI additions:**
+
+- Platform-specific build jobs. Signing keys and certificates stored as CI secrets.
+- Release artifacts uploaded to GitHub Releases.
+- If targeting an app store: a separate submission step in CI or a manual upload gate.
+
+---
+
+### D — Mobile app
+
+> If the project is a mobile app, this should have been flagged in phase 0.2. Distribution for mobile is not optional or late-stage — it is part of the pipeline from day one.
+
+**Channels:**
+
+- **iOS:** App Store (mandatory for public distribution). Requires Apple Developer account ($99/yr). TestFlight for beta distribution.
+- **Android:** Google Play Store (recommended). Requires Google Play Developer account ($25 one-time). Internal testing, closed testing, and open testing tracks available before public release.
+
+**CI additions (mandatory from the start):**
+
+- Code signing setup: provisioning profiles and certificates (iOS), keystore (Android). Stored as CI secrets — never committed.
+- Build pipeline: generates signed `.ipa` (iOS) or `.aab` / `.apk` (Android).
+- Automated delivery: Fastlane is the standard tool for submitting builds to TestFlight and Play Console from CI.
+
+---
+
+### At the end of this annex
+
+Record in `AGENTS.md` under a `## Distribution` section:
+
+- Which channels apply
+- Versioning and release tooling chosen
+- What CI jobs were added
+- Any accounts, certificates, or tokens that need to be set up manually (do not store values — list what is needed and where it should go)
