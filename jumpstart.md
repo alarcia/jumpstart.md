@@ -869,7 +869,7 @@ At the end of this phase, note:
 - Production: option chosen (A–D), specific platform or panel if applicable
 - Any constraints: arm64 requirement, cost ceiling, existing infrastructure
 
-Then continue to Phase 2.
+Then continue to 2.1
 
 ---
 
@@ -878,8 +878,6 @@ Then continue to Phase 2.
 > Run this annex if or when you decide to make the project available as a distributable package. It is not necessarily part of the initial jumpstart flow.
 >
 > If distribution is clear from the start (e.g. "I'm building an npm library"), run this annex immediately after phase 0.2. Otherwise, come back to it when the need arises.
-
-Then continue to 1.3
 
 ---
 
