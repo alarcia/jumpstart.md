@@ -1010,15 +1010,15 @@ Ask only what the answers to Q1–Q3 have not already resolved. One question at 
 
 **Component system**
 
-> "Do you have a preference for how the UI components are built?
+> "How do you prefer to work with UI components?
 >
-> - A) shadcn/ui + Tailwind — headless, composable, copy-paste, highly customizable
-> - B) DaisyUI — Tailwind-based but with pre-styled components, faster to start
-> - C) Mantine — full React component library, batteries included
-> - D) No preference — you decide based on the stack"
+> - A) Full control — I want to own the code, customize everything, no black boxes
+> - B) Productive defaults — I want pre-built components that look good out of the box
+>   and are easy to theme
+> - C) No preference — choose what fits the stack"
 
-If the developer has already chosen a framework in a prior session, confirm it does not
-conflict with the component system. If there is a conflict, flag it before moving on.
+The agent will select the specific component library in phase 2.2 once the framework
+is decided. Record the preference here as a constraint for that decision.
 
 ---
 
@@ -1119,6 +1119,363 @@ component, layout, or style.
 ---
 
 Then continue to 2.2
+
+---
+
+## 2.2 — Technologies and frameworks
+
+> This phase determines the technical stack by layer. Its output is a set of concrete, locked-in choices — not a shortlist. By the end, the agent must be able to scaffold the project without asking any further technology questions.
+>
+> Do not re-ask anything already established in phases 0 or 2.1. Check the project profile from 0.2 and the DESIGN.md from 2.1 before asking anything.
+
+---
+
+#### Before asking anything
+
+From prior phases you already know:
+
+- **Project shape** (0.1/0.2): web app / CLI / API / library / desktop / mobile
+- **Backend presence** (0.1): frontend-only / full-stack / API-only
+- **Component system** (2.1): shadcn/ui+Tailwind / DaisyUI / Mantine / none
+- **Developer's language preference**, if stated anywhere
+
+Use this to skip entire layers. A CLI tool skips all frontend questions. A frontend-only web app skips backend framework questions. A library skips both.
+
+---
+
+#### Step 1 — Language and ecosystem anchor
+
+This is the single most consequential decision. Everything else follows from it.
+
+> "What language do you want to build this in? Pick the closest:
+>
+> - A) TypeScript / JavaScript (Node.js, Bun, or Deno)
+> - B) Python
+> - C) Go
+> - D) Rust
+> - E) Ruby
+> - F) Swift (Apple platforms only)
+> - G) Other / I don't know yet"
+
+If the developer named a specific framework in phase 0 (e.g. "a Next.js app"), the language is already decided. Do not ask this question — carry the answer forward.
+
+If G: ask what the project does and recommend the most natural fit. A systems tool with performance requirements → Go or Rust. A data-heavy backend or ML-adjacent project → Python. A web app with no strong preference → TypeScript. Then treat the recommendation as the answer and continue.
+
+---
+
+#### Step 2 — Frontend framework
+
+Skip this step entirely if:
+- Project has no UI (API-only, CLI, library)
+- Language chosen in Step 1 is not TypeScript/JavaScript (unless the developer explicitly wants a JS frontend with a non-JS backend)
+
+---
+
+**If TypeScript / JavaScript:**
+
+> "What kind of frontend are you building?
+>
+> - A) A full web app where pages and routing matter (blog, SaaS, marketing site with auth)
+> - B) A single-page app or dashboard (heavy client-side state, no meaningful URLs)
+> - C) A mostly static site with some dynamic content
+> - D) Something embedded or minimal — no framework needed"
+
+Route based on the answer:
+
+**A → Meta-framework.** Present these options:
+
+| Option | Best when |
+|---|---|
+| **Next.js** | Default for React-based full-stack apps. Large ecosystem, tight Vercel integration, RSC support. |
+| **SvelteKit** | Smaller bundle, less boilerplate, excellent DX. Good if the developer is comfortable with Svelte or wants to learn it. |
+| **Nuxt** | Same as Next.js but for Vue. Only if the developer has a strong Vue preference. |
+| **Remix** | Strong opinion on web fundamentals (forms, loaders, nested routes). Good for data-heavy apps that benefit from progressive enhancement. |
+| **Astro** | Content-heavy sites (docs, blogs, portfolios) where most pages are static and interactivity is optional. |
+
+If the developer has no strong preference and the project profile is a standard SaaS or web app: recommend **Next.js**. It is the safest default — widest ecosystem, most compatible with the integrations in phase 2.4, fewest surprises.
+
+**B → SPA.** The meta-framework handles routing server-side, which is overkill for a fully client-rendered dashboard. Ask:
+
+> "Are you using an existing backend or API, or will you need to build one?
+>
+> - A) Existing API (my own or a third-party one)
+> - B) I need to build a backend too"
+
+If A: use Vite + React (or Vite + Vue / Svelte if the developer has a preference). No SSR, no meta-framework complexity.
+
+If B: reconsider a meta-framework (option A above). A full-stack SPA with a separate backend is usually more complex than it needs to be.
+
+**C → Static with islands.** Default to **Astro**. It generates static HTML by default and lets you add interactive components in React, Vue, or Svelte where needed. Zero JS overhead unless you opt in.
+
+**D → No framework.** Note it and continue to Step 3.
+
+---
+
+**If Python, Go, Rust, Ruby, or other backend language with a web UI:**
+
+These stacks typically render HTML server-side or serve a separate JS frontend. Ask:
+
+> "Where does the UI live?
+>
+> - A) Server-rendered HTML (templates, htmx, or similar)
+> - B) Separate frontend (a JS app that calls this backend's API)"
+
+If A: the UI framework decision happens at the backend level (see Step 3). No separate frontend framework needed.
+
+If B: go back and run the TypeScript frontend questions above for the frontend layer, then continue with the non-JS backend in Step 3.
+
+---
+
+#### Step 3 — Backend framework
+
+Skip this step if the project is frontend-only with no custom backend.
+
+Before routing by language, determine whether the backend will be built from scratch or already exists as a platform:
+
+> "Will you build the backend, or will you use an existing platform that exposes an API (an e-commerce engine, a headless CMS, an ERP)?
+>
+> - A) I'll build it — custom code, my own database
+> - B) An existing platform handles it — I'll call its API from the frontend"
+
+If A: continue to the language-based options below.
+
+If B: go to **Headless platform** section below, then skip the rest of Step 3.
+
+---
+
+#### Headless platform
+
+The backend already exists. Your work is the frontend and, optionally, a thin BFF (Backend For Frontend) to protect API keys or handle webhooks.
+
+Identify the platform category:
+
+| Category | Options |
+|---|---|
+| **E-commerce** | Medusa (self-hosted), Shopify (SaaS), Saleor (self-hosted), Vendure (self-hosted), BigCommerce (SaaS) |
+| **Headless CMS** | Sanity, Contentful, Strapi (self-hosted), Payload (self-hosted) |
+| **ERP / vertical platform** | Odoo, ERPNext, or any system with a documented API |
+
+Ask which platform applies. If the developer already named it earlier, carry the answer forward without asking.
+
+Then ask one follow-up:
+
+> "Does your frontend need to call the platform API directly from the browser, or should API calls go through a server layer you control?
+>
+> - A) Directly from the browser — the platform allows it and no sensitive keys are involved
+> - B) Through a server layer — I need to protect API keys, transform responses, or handle webhooks"
+
+If A: no custom backend needed. Note it and continue to Step 4.
+
+If B: a thin BFF is needed. This is not a full backend — it is a small server layer with one or two responsibilities. Recommended approach by language:
+
+- TypeScript → **Hono** (edge-friendly, minimal) or Next.js API routes if already using Next.js
+- Python → **FastAPI** with a minimal route set
+- Other → the standard HTTP library for the chosen language is sufficient
+
+Note in `AGENTS.md` that the BFF has a narrow scope. It must not grow into a general-purpose backend.
+
+**Note on phase 2.3 (database):** most headless platforms manage their own database. Ask:
+
+> "Does the platform manage its own data entirely, or will you store additional data outside it (user preferences, custom content, orders not handled by the platform)?"
+
+- Platform manages everything → skip phase 2.3.
+- Additional data needed → continue to 2.3 as normal.
+
+**Note on self-hosted platforms (Medusa, Saleor, Strapi, Payload, Odoo):** these require a server and a database. Their hosting decisions overlap with phases 1.1 and 1.3. Flag it:
+
+> "You're self-hosting [platform]. Its infrastructure decisions (server, database, Docker) are covered in phases 1.1 and 1.3. We'll revisit them there — for now, just note the platform name."
+
+Record in `AGENTS.md`:
+
+```
+Backend: headless platform — [platform name]
+BFF: [Hono | Next.js routes | FastAPI | none]
+Platform hosting: [self-hosted | SaaS]
+Additional database: [yes — continue to 2.3 | no — skip 2.3]
+```
+
+---
+
+Based on the language from Step 1:
+
+---
+
+**TypeScript / JavaScript:**
+
+| Option | Best when |
+|---|---|
+| **Next.js API routes / Route Handlers** | Already using Next.js for the frontend. Avoid adding a separate backend process. |
+| **tRPC** | Full-stack TypeScript monorepo. End-to-end type safety without a REST or GraphQL layer. |
+| **Hono** | Lightweight, edge-ready API server. Good for Cloudflare Workers, Bun, or when you want a minimal HTTP layer. |
+| **Fastify** | High-performance Node.js API. Good for standalone backend services that need speed and a plugin ecosystem. |
+| **Express** | Only if the developer has strong existing familiarity. No other reason to choose it in a new project. |
+
+If the project is a Next.js full-stack app: default to **Next.js API routes / Route Handlers**. No separate backend process. Ask only if the developer explicitly wants a separate service.
+
+If the project needs a standalone backend: ask whether edge deployment matters.
+
+> "Will this backend run on edge runtimes (Cloudflare Workers, Vercel Edge), or on a standard Node.js / container environment?
+>
+> - A) Edge — must run on Cloudflare Workers or similar
+> - B) Standard Node.js or container"
+
+If A → **Hono** (edge-native, small, no Node.js dependencies).
+If B → **Fastify** (performance) or tRPC (if type safety across monorepo matters more than performance).
+
+**BaaS as a backend alternative:** if the project has no complex server-side logic — mostly CRUD, auth, and file storage — consider skipping a custom backend entirely.
+
+> "Does your backend need custom business logic, or is it mostly reads, writes, and auth?
+>
+> - A) Custom logic — workflows, calculations, integrations, scheduled jobs
+> - B) Mostly CRUD and auth — standard data operations"
+
+If B: present these alternatives:
+
+| Option | Best when |
+|---|---|
+| **Supabase** | PostgreSQL-based. Open source, self-hostable. Includes auth, storage, realtime, edge functions. |
+| **PocketBase** | Single binary, SQLite-based. Extremely easy to self-host. Good for small to medium projects. |
+| **Appwrite** | Docker-based. More opinionated than PocketBase, more features. Good if you want a full self-hosted BaaS. |
+
+If any of these is chosen, note it in AGENTS.md and skip the database phase (2.3) — the BaaS provides the database layer.
+
+---
+
+**Python:**
+
+| Option | Best when |
+|---|---|
+| **FastAPI** | Default for API-first backends. Async, typed, fast, great OpenAPI support. |
+| **Django** | Full-stack with ORM, admin panel, and batteries included. Good for content-heavy apps or when an admin interface matters. |
+| **Flask** | Minimal. Only if the developer wants explicit control over every component and FastAPI is not a fit. |
+| **Django + HTMX** | Server-rendered UI without a JS frontend. Good for internal tools or content sites that don't need React. |
+
+Default recommendation: **FastAPI** for API-only backends, **Django** for full-stack apps with admin needs.
+
+---
+
+**Go:**
+
+| Option | Best when |
+|---|---|
+| **Standard library + net/http** | CLI tools, small services, maximum simplicity. |
+| **Chi** | Lightweight router, stays close to the standard library. |
+| **Echo** | More features, good middleware ecosystem. |
+| **Gin** | Similar to Echo. Large community. |
+
+For most Go web projects: **Chi** or the standard library. Go's standard library is capable enough that a full framework is rarely worth the dependency.
+
+---
+
+**Rust:**
+
+| Option | Best when |
+|---|---|
+| **Axum** | Default. Tokio-native, async, composable, well-maintained. |
+| **Actix-web** | Higher raw performance, more mature ecosystem. Slightly more complex. |
+
+Default: **Axum** unless benchmark results specifically justify Actix-web.
+
+---
+
+**Ruby:**
+
+| Option | Best when |
+|---|---|
+| **Rails** | Default. Full-stack, conventions-first, excellent for CRUD-heavy apps. |
+| **Sinatra** | Minimal API or microservice. Only if Rails is genuinely overkill. |
+
+---
+
+#### Step 4 — Runtime (TypeScript/JavaScript only)
+
+Skip if language is not TypeScript/JavaScript.
+
+The runtime choice affects package compatibility, performance, and deployment targets.
+
+> "Which runtime will this project use?
+>
+> - A) Node.js — the universal default, widest compatibility
+> - B) Bun — drop-in Node.js replacement, significantly faster installs and startup
+> - C) Deno — security-first, built-in TypeScript, native Web APIs"
+
+Notes per option:
+
+**A — Node.js:** Default. Every library works. Most deployment targets assume it. No surprises.
+
+**B — Bun:** Compatible with most Node.js packages. Noticeably faster for local dev and CI. Some edge cases with native modules. If the developer values speed and is comfortable debugging occasional compatibility issues: a good choice. Not yet the default for production-critical projects.
+
+**C — Deno:** Different module system (URL imports, JSR). Native TypeScript without a build step. Best for projects that want Web API parity (Fetch, WebSockets) without polyfills. Most suitable for edge functions or CLI tools, not for projects that depend heavily on npm packages.
+
+If the developer has no preference and the project is a standard web app: default to **Node.js**.
+
+---
+
+#### Step 5 — Mobile framework (if applicable)
+
+Skip unless project shape from 0.2 is mobile.
+
+> "Are you building for one platform or both?
+>
+> - A) iOS only
+> - B) Android only
+> - C) Both iOS and Android"
+
+If A (iOS only): **Swift + SwiftUI**. Native stack, best platform integration, Apple's own tools.
+
+If B (Android only): **Kotlin + Jetpack Compose**. Native stack, Google's recommended approach.
+
+If C (both): ask whether native or cross-platform:
+
+> "Do you need native performance and full platform APIs, or is cross-platform development speed more important?
+>
+> - A) Native performance and deep platform integration
+> - B) Shared codebase, faster development"
+
+If A → build two separate native apps (Swift for iOS, Kotlin for Android). Expensive but highest quality.
+
+If B → cross-platform framework. Options:
+
+| Option | Best when |
+|---|---|
+| **React Native + Expo** | TypeScript already in the stack. Large ecosystem. Expo simplifies distribution and OTA updates. |
+| **Flutter** | No JS/TS requirement. Excellent rendering consistency across platforms. Strong for UI-heavy apps. |
+| **Kotlin Multiplatform** | Shared business logic, native UIs per platform. Good if the team is Kotlin-first. |
+
+Default for cross-platform: **React Native + Expo** if the project already uses TypeScript, **Flutter** otherwise.
+
+---
+
+#### Step 6 — Desktop framework (if applicable)
+
+Skip unless project shape from 0.2 is desktop.
+
+> "Do you want to use web technologies (HTML/CSS/JS) or native code for the desktop UI?
+>
+> - A) Web technologies — I want to reuse frontend skills or share code with a web app
+> - B) Native — best platform integration, smallest binary, no web overhead"
+
+If A:
+
+| Option | Best when |
+|---|---|
+| **Tauri** | Rust backend + web frontend. Small binary, low memory, secure. Strong default for new projects. |
+| **Electron** | Widest ecosystem, proven at scale (VS Code, Slack, Figma). Heavy binary. Only if Tauri's constraints are a problem. |
+
+Default: **Tauri**. Significantly smaller and more performant than Electron. The tradeoff is a Rust backend — if the developer is not comfortable with Rust, flag it.
+
+If B:
+- macOS → Swift + SwiftUI
+- Windows → C# + WinUI 3 or WPF
+- Cross-platform → Qt (C++) or Slint (Rust)
+
+---
+
+#### At the end of this phase
+
+Record in `AGENTS.md` under `## Stack`:
+
+Then continue to 2.3
 
 ---
 
