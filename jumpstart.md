@@ -1479,6 +1479,101 @@ Then continue to 2.3
 
 ---
 
+## 2.3 — Database
+
+> This phase determines what database engine the project uses and how the application
+> accesses it. It has two parts: engine selection and access layer. Both decisions depend
+> heavily on what was decided in phases 0.2 (project profile), 1.1 (containerization),
+> 1.3 (hosting), and 2.2 (stack).
+
+---
+
+#### When to skip this phase
+
+If phase 2.2 concluded with a BaaS (Supabase, PocketBase, Appwrite) or a headless
+platform that manages its own data entirely, the database is already decided. Note it in
+`AGENTS.md` and skip to 2.4.
+
+If the project has no persistent data at all (a CLI tool, a stateless proxy, a pure
+compute script), skip this phase and note it.
+
+---
+
+### Part A — Engine
+
+#### Fast track
+
+For most projects, the right database is **PostgreSQL**. Before asking anything else,
+check whether any of the following conditions apply. If none do, go straight to
+PostgreSQL and skip to Part B.
+
+Fast-track disqualifiers — ask yourself:
+
+- Is this a single-process app on a single server — a bot, a personal script with persistence, a small internal API, a desktop app? → Consider **SQLite** first.
+- Is the only data need sessions, caching, rate limiting, or a job queue? → Consider **Redis / Valkey** instead of a relational DB.
+- Does the project store AI embeddings or run semantic search? → PostgreSQL with **pgvector** extension, or a dedicated vector store.
+- Is the data model genuinely non-relational — deeply nested documents with no fixed schema, varying fields per record? → Ask the developer before assuming NoSQL.
+
+If none of these apply: **PostgreSQL is the engine. Move to Part B.**
+
+---
+
+#### Q1 — Only ask if a fast-track condition was triggered
+
+> "Based on what you've described, [condition] suggests [engine] might fit better than
+> PostgreSQL. Does that match what you have in mind, or do you want to stick with
+> PostgreSQL?"
+
+Do not present a menu of every database option. Present the specific alternative that the
+condition triggered, explain why in one sentence, and let the developer confirm or
+override.
+
+---
+
+#### Engine reference
+
+Use this table to guide the recommendation if a fast-track condition applies. Do not
+present this table to the developer — it is for the agent's internal routing only.
+
+| Condition | Engine | Notes |
+|---|---|---|
+| Single-process app on a single server (bot, personal script, small internal API, desktop app) | **SQLite** | Embedded, zero infrastructure. The right call when one process owns the data and concurrency is not a concern. Also consider Turso (distributed SQLite, libSQL) if edge access is needed. |
+| Cache, sessions, rate limiting, pub/sub | **Redis** or **Valkey** | Valkey is the open-source Redis fork post-license change. Upstash for serverless/edge. May complement PostgreSQL rather than replace it. |
+| AI embeddings / semantic search | **pgvector** (PostgreSQL extension) | Avoid a separate vector store until pgvector demonstrably doesn't meet performance needs. |
+| Genuine document model (flexible schema, deeply nested) | **MongoDB** | Only if the data truly doesn't fit a relational model. Atlas for managed hosting. |
+| Time-series metrics at volume | **TimescaleDB** (PostgreSQL extension) or InfluxDB | TimescaleDB preferred — stays in the PostgreSQL ecosystem. |
+
+---
+
+#### Hosting the database
+
+Do not re-ask what was decided in phase 1.3. Apply these rules based on the hosting
+decision already recorded:
+
+**If production is on a managed platform (Vercel, fly.io, Railway, Render):**
+Use a managed database service. These platforms have native integrations:
+- PostgreSQL → Neon (serverless, branching, free tier), Supabase (includes auth and
+  storage), Railway Postgres, fly.io Postgres.
+- Redis → Upstash (serverless, edge-compatible).
+
+**If production is self-managed (Coolify, bare VPS, Raspberry Pi):**
+Run the database as a Docker service alongside the application.
+
+> ⚠️ If the database runs in Docker, named volumes are not optional. A container
+> without a named volume loses all data every time it is recreated. The `docker-compose.yml`
+> must declare a named volume for the database service's data directory. Coolify handles
+> this automatically for managed services; if writing the compose file manually, do not
+> skip it.
+
+Example of what must be present (do not include in the final compose file without
+adapting to the actual project):
+
+```
+---
+
+Then continue to 2.4
+---
+
 ## Annex B — Distribution
 
 > Run this annex if or when you decide to make the project available as a distributable package. It is not necessarily part of the initial jumpstart flow.
