@@ -23,6 +23,7 @@ At the end of every session:
 1. Write or update `AGENTS.md` as described below.
 2. Add a `## Session log` entry with the phase completed and a one-line summary of the outcome.
 3. Tell the developer which phase comes next and what it covers.
+4. If any significant technical decision was made during this session that isn't already captured in AGENTS.md, add it to `DECISIONS.md` (create it if it doesn't exist) with date and one-line rationale. This is for decisions that emerge during development, not jumpstart decisions — those go in AGENTS.md.
 
 If a phase isn't fully resolved by the end of the session, document what's pending in `AGENTS.md` under a `## Pending` section and stop. The next session picks it up from there.
 
