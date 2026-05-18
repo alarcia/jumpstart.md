@@ -1665,7 +1665,379 @@ Database:
   Notes: [any relevant constraints — edge runtime, SQLite for local only, etc.]
 ```
 
-Then continue to 2.4
+Then continue to 2.4.
+
+---
+
+## 2.4 — Services and integrations
+
+> This phase identifies which external services the project needs and locks in a specific
+> choice for each. The goal is not to survey every available tool — it is to close
+> decisions that, if left open, cause friction during implementation.
+>
+> Most integrations have a reasonable default given the stack. The agent's job is to
+> confirm which categories apply, skip what doesn't, and recommend the most compatible
+> option given what was already decided in phases 0.2, 2.2, and 2.3.
+
+---
+
+### Before asking anything: the needs matrix
+
+Review prior phases and classify each category before asking a single question. Categories
+with a clear skip condition from existing decisions do not require any interaction.
+
+| Category | Skip if |
+|---|---|
+| Auth | No user accounts (0.2) — or BaaS from 2.2 already provides it |
+| Payments | Not monetized (0.2) |
+| Transactional email | Personal tool with no users (0.2) |
+| File storage | No user-uploaded content — or BaaS already provides it |
+| CMS | No content managed by non-developers |
+| Commerce & backoffice | No catalog, orders, or custom admin need |
+| Analytics | Personal tool or throwaway (0.2) |
+| Error monitoring | Throwaway project (0.2 lifespan = throwaway) |
+| Search | Not mentioned in 0.1; no large content corpus |
+| Background jobs | No async processing or scheduled tasks mentioned |
+| AI / LLM | No AI features mentioned in 0.1 |
+
+Run only the categories that are not skipped. For each, ask one question if the need is
+ambiguous. If it is clearly needed and the right choice follows from the stack, recommend
+directly without asking.
+
+---
+
+### Auth
+
+**Skip if:** no user accounts (Q2 in 0.2 returned A or C with no accounts), or a BaaS
+chosen in 2.2 already bundles auth (Supabase, PocketBase, Appwrite). If a BaaS covers
+it, note the auth provider in AGENTS.md and move on.
+
+**If auth is needed and not yet resolved:**
+
+> "How complex are your auth requirements?
+>
+> - A) Email + password and social login (Google, GitHub) — standard SaaS auth
+> - B) Enterprise features — SSO, SAML, organization-level permissions
+> - C) Full control over the auth flow — I want to own the code"
+
+| Condition | Recommendation |
+|---|---|
+| A + managed platform (Vercel, fly.io) | **Clerk** — best DX, pre-built UI components, handles sessions, JWT, social login. Paid above free tier. |
+| A + self-managed (Coolify, VPS) | **Auth.js** if Next.js stack; **Lucia** if you want a lightweight library without an opinionated session model |
+| B | **WorkOS** or **Clerk** Enterprise plan |
+| C | **Lucia** — thin library, no magic, you own the session and user model |
+
+Record in AGENTS.md: `Auth: [provider]`
+
+---
+
+### Payments
+
+**Skip if:** not monetized (Q1 in 0.2 returned A).
+
+> "What kind of payments does this project need?
+>
+> - A) Automated — card, Apple Pay, or similar via a payment gateway
+> - B) Marketplace — splitting money between multiple parties
+> - C) Manual verification — customer pays via bank transfer, Bizum, or another
+>   out-of-band method and an admin confirms receipt before the order advances
+> - D) Not sure yet — payments may come later"
+
+If D: skip for now. Flag as pending in AGENTS.md.
+
+**If A or B:**
+
+> "Are you selling a digital product or SaaS subscription, or physical / variable-price goods?"
+
+- **Digital / SaaS →** **Stripe** (subscriptions, metered billing, customer portal) or
+  **LemonSqueezy** (simpler, acts as merchant of record — handles VAT and tax compliance
+  automatically, relevant for solo developers selling globally).
+- **Physical / variable-price →** **Stripe** only. LemonSqueezy is digital-only.
+- **Marketplace →** **Stripe Connect**.
+
+**LemonSqueezy vs Stripe:** LemonSqueezy handles all tax compliance on your behalf — a
+significant advantage for international sales. The trade-off is less flexibility and
+slightly higher fees. If tax compliance is a pain point: LemonSqueezy. If you need
+complex billing logic or full control: Stripe.
+
+Record in AGENTS.md: `Payments: [provider]`
+
+**If C (manual verification):**
+
+No payment provider is needed. This pattern is implemented entirely within the
+application's order state machine. What to design instead:
+
+- **Order states:** at minimum `pending_payment → payment_claimed → verified → processing → fulfilled`. Add `cancelled` and `payment_rejected` as terminal states.
+- **Customer flow:** at checkout, show the payment instructions (phone number for Bizum,
+  IBAN for bank transfer, etc.) and a "I've paid" confirmation button that moves the
+  order to `payment_claimed`.
+- **Admin flow:** a backoffice view listing all orders in `payment_claimed` state, with
+  the ability to mark as `verified` (advancing the order) or `payment_rejected` (notifying
+  the customer to retry). If a commerce backoffice is already in scope from the Commerce
+  & backoffice category, this admin flow lives there.
+- **Fraud surface:** manual verification means trusting the customer's claim until the
+  admin checks. Make it explicit in the UI that the order will not be processed until
+  payment is confirmed. Do not reserve or reduce stock until the order reaches `verified`.
+
+Record in AGENTS.md: `Payments: manual verification — [method, e.g. Bizum / bank transfer]`
+
+---
+
+### Transactional email
+
+**Skip if:** personal tool with no users at all (0.2 type = personal tool).
+
+**Delivery channel note:** transactional email covers account-related messages — welcome
+emails, password resets, and system alerts. If this project delivers notifications
+primarily through another channel (Telegram bot, push notifications, SMS), confirm
+whether email is still needed for account management before skipping. Bot-first and
+notification-first projects often still need email for onboarding or fallback, even if
+it is not the primary delivery channel.
+
+> "Do you need to send transactional email (account emails, password resets, automated notifications by email)?"
+
+If no: note `Email: none` in AGENTS.md and skip.
+
+If yes:
+
+| Option | Best when |
+|---|---|
+| **Resend** | Default for new projects. Developer-friendly API, React Email for templates, generous free tier. |
+| **Postmark** | Higher deliverability focus. Good when email reliability is critical and bounce rates matter. |
+| **SendGrid** | Large ecosystem, but more complex and marketing-oriented. No strong reason to choose it over Resend for new projects. |
+
+Default recommendation: **Resend**. Add `RESEND_API_KEY` to `.env.example`.
+
+Record in AGENTS.md: `Email: [provider]`
+
+---
+
+### File storage
+
+**Skip if:** no user-uploaded content, or a BaaS from 2.2 already provides storage.
+
+> "Does the project need to store user-uploaded files (images, documents, attachments)?"
+
+If no: skip.
+
+If yes:
+
+| Option | Best when |
+|---|---|
+| **Cloudflare R2** | Default for self-managed or mixed hosting. S3-compatible API, zero egress fees, generous free tier. |
+| **Supabase Storage** | Already using Supabase. Integrates with auth and RLS policies. |
+| **AWS S3** | Only if already deep in the AWS ecosystem. |
+
+For self-managed hosting (Raspberry Pi, Coolify, VPS): R2 is strongly preferred over
+self-hosting MinIO. R2 is managed, cheap, and avoids the operational overhead of running
+object storage yourself.
+
+Record in AGENTS.md: `File storage: [provider]`
+
+---
+
+### CMS
+
+**Skip if:** no content managed by non-developers, and no editorial or marketing layer.
+
+> "Does someone other than a developer need to manage content — articles, copy, product descriptions, images?"
+
+If no: skip.
+
+If yes:
+
+> "Self-hosted or managed?"
+
+| Option | Type | Best when |
+|---|---|---|
+| **Payload** | Self-hosted (Node.js) | Full control, TypeScript-native, lives in the same repo as the app, custom admin UI. |
+| **Sanity** | Managed SaaS | Real-time collaboration, flexible content modeling, generous free tier. Good default for editorial sites. |
+| **Strapi** | Self-hosted (Node.js) | Larger community than Payload, more opinionated. |
+| **Contentful** | Managed SaaS | Enterprise-grade. Only if the team is already familiar with it — pricing grows fast. |
+
+Default for self-managed hosting: **Payload**.  
+Default for managed platform: **Sanity**.
+
+Record in AGENTS.md: `CMS: [provider]`
+
+---
+
+### Commerce & backoffice
+
+**Skip if:** no product catalog, no orders, and no need for a custom admin interface.
+
+> "Does this project need any of the following?
+>
+> - A) E-commerce — product catalog, cart, checkout, orders
+> - B) Custom admin backoffice — managing app data through a purpose-built UI
+> - C) Both
+> - D) Neither"
+
+If D: skip.
+
+**If A or C (commerce needed):**
+
+| Option | Best when |
+|---|---|
+| **Medusa** | Self-hosted, fully customizable commerce engine. Node.js, TypeScript-native, headless. Good when you need full ownership of the storefront and checkout. |
+| **Saleor** | Self-hosted, GraphQL-first. More mature for complex catalogs. Heavier infrastructure (Django + PostgreSQL). |
+| **Shopify** | Managed SaaS. Only if development speed and ecosystem matter more than control. Significant vendor lock-in. |
+
+Default for self-managed projects: **Medusa**. Pairs naturally with a Next.js frontend
+and a Coolify deployment.
+
+**If B only (custom backoffice, no commerce):**
+
+| Option | Best when |
+|---|---|
+| **Directus** | Wraps any existing PostgreSQL database with an auto-generated admin UI and REST/GraphQL API. Excellent when the data model already exists. |
+| **Payload** | Already chosen as CMS, or building the data model from scratch and want full code ownership. |
+| **Retool** | Fast to build internal tools, but expensive at scale and not self-hostable on the free tier. |
+
+Default: **Directus** if the database is already defined and you want an admin without
+building it. **Payload** if you are building from scratch and want the admin to live in
+the same codebase.
+
+Record in AGENTS.md: `Commerce: [provider]` and/or `Backoffice: [provider]`
+
+---
+
+### Analytics
+
+**Skip if:** personal tool or throwaway project (0.2).
+
+> "Do you need to track user behavior or traffic?"
+
+If no: skip.
+
+If yes:
+
+| Option | Best when |
+|---|---|
+| **Plausible** | Privacy-first, GDPR-compliant by default, no cookie banner required, simple dashboard. Managed SaaS, also self-hostable. |
+| **Umami** | Same philosophy as Plausible but fully open source and free to self-host. Good if already on self-managed infrastructure. |
+| **PostHog** | Full product analytics — events, funnels, session replay, feature flags. More powerful; more complex. Self-hostable. |
+
+Default: **Plausible** (managed) or **Umami** (self-managed). Use PostHog only if you
+need event-level tracking, funnels, or feature flags.
+
+Record in AGENTS.md: `Analytics: [provider]`
+
+---
+
+### Error monitoring
+
+**Skip if:** throwaway project (0.2 lifespan = throwaway).
+
+For any production deployment, error monitoring is not optional. Do not ask whether it
+is needed — it is.
+
+**Default: Sentry.** Available as managed SaaS and self-hostable via Docker. The free
+tier covers most personal and small-team projects.
+
+If the project is self-managed and cost matters: note that self-hosting Sentry is
+resource-heavy (minimum 4 GB RAM). On a Raspberry Pi or small VPS, the managed free
+tier is the better choice.
+
+Add `SENTRY_DSN` to `.env.example`.
+
+Record in AGENTS.md: `Error monitoring: Sentry — [managed | self-hosted]`
+
+---
+
+### Search
+
+**Skip unless:** full-text search was mentioned in 0.1, or the project has a large
+content corpus (documentation, catalog, articles) where simple database queries would
+not be adequate.
+
+> "Does the project need a dedicated search experience — autocomplete, faceted filters, ranked results?"
+
+If no: skip. PostgreSQL full-text search covers most simple needs. Do not add a search
+service unless the UX requires it.
+
+If yes:
+
+| Option | Best when |
+|---|---|
+| **Typesense** | Self-hostable, fast, simple to operate. Best default for self-managed projects. |
+| **Meilisearch** | Similar to Typesense. Slightly simpler API. Also self-hostable. |
+| **Algolia** | Managed SaaS. Best DX, most features, expensive at scale. |
+
+Default for self-managed: **Typesense**.  
+Default for managed platform: **Algolia** (if budget allows) or **Typesense Cloud**.
+
+Record in AGENTS.md: `Search: [provider]`
+
+---
+
+### Background jobs
+
+**Skip unless:** async processing, scheduled tasks, or long-running operations were
+mentioned in 0.1.
+
+> "Does the project need to run tasks asynchronously or on a schedule — sending emails in the background, processing uploads, scheduled reports, webhook fanout?"
+
+If no: skip.
+
+If yes:
+
+| Option | Best when |
+|---|---|
+| **BullMQ** | Node.js stack with Redis already in the project (from 2.3). Reliable, mature, good for event-driven jobs. |
+| **Trigger.dev** | Managed + self-hostable. Good DX, built-in observability, supports long-running jobs. Good when Redis is not already present. |
+| **pg-boss** | PostgreSQL-backed queue. No Redis needed. Good for simpler job queues when PostgreSQL is already the database. |
+
+If Redis is already in the stack (2.3): **BullMQ**.  
+If not and the stack is Node.js: **pg-boss** if the workload is simple; **Trigger.dev**
+if jobs are complex or need observability.
+
+Record in AGENTS.md: `Background jobs: [provider]`
+
+---
+
+### AI / LLM
+
+**Skip unless:** AI-generated content, semantic search, embeddings, or any LLM-powered
+feature was mentioned in 0.1.
+
+> "Does the project call an LLM API or use AI-generated outputs?"
+
+If no: skip.
+
+If yes:
+
+> "Is the AI feature a core part of the product, or a secondary enhancement?"
+
+- **Core** → decide the provider now. It affects the data model (embeddings in 2.3),
+  latency budget, and cost structure.
+- **Enhancement** → flag as pending in AGENTS.md. Revisit when implementing that feature.
+
+**For core AI features:**
+
+| Option | Best when |
+|---|---|
+| **Anthropic (Claude)** | Long context, complex reasoning, strong instruction-following. |
+| **OpenAI** | Widest ecosystem and third-party integrations. |
+| **Google Gemini** | Multimodal tasks or existing Google Cloud footprint. |
+| **Ollama (local)** | Privacy-first, no API costs, offline. Requires capable hardware. |
+| **Vercel AI SDK** | Provider-agnostic abstraction layer. Good if you want to avoid lock-in or switch providers later. |
+
+If the project uses vector search (pgvector noted in 2.3), confirm the embedding model
+here — it must match the model used at query time.
+
+Record in AGENTS.md: `AI: [provider]` and `Embeddings: [model]` if applicable.
+
+---
+
+### At the end of this phase
+
+Review the `## Integrations` section in AGENTS.md. Every category that was explicitly
+skipped should be recorded as `none` — not left blank — so future agents do not assume
+it was overlooked.
+
+Then continue to 3.1.
+
 ---
 
 ## Annex B — Distribution
