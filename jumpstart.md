@@ -1569,7 +1569,101 @@ Example of what must be present (do not include in the final compose file withou
 adapting to the actual project):
 
 ```
+db:
+  image: postgres:16
+  volumes:
+    - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+**If staging is self-managed and production is a managed platform:**
+Use the same engine in both environments. In staging, run it in Docker with a named
+volume. In production, use the managed service. The connection string is the only thing
+that changes between environments — this is what `.env` files are for.
+
 ---
+
+### Part B — Access layer
+
+The access layer is the code between the application and the database. The right choice
+depends on the language decided in phase 2.2.
+
+Do not ask the developer about this unless they have expressed a strong preference.
+Apply the defaults below. If the developer has mentioned a tool by name earlier in the
+session, use that.
+
+---
+
+**TypeScript / JavaScript**
+
+Two strong options. Choose based on the developer's working style:
+
+| Option | Choose when |
+|---|---|
+| **Prisma** | The developer prefers a schema-first workflow, wants auto-generated types from the schema, and values a managed migration system. More abstraction — less raw SQL. |
+| **Drizzle** | The developer is comfortable with SQL, wants a thin layer that stays close to the database, and values minimal runtime overhead. Schema is defined in TypeScript. |
+
+Default recommendation: **Drizzle** for projects where the developer is confident with
+SQL and wants control. **Prisma** for developers who prefer convention and a higher-level
+abstraction.
+
+If the project uses SQLite locally: both Prisma and Drizzle support it natively.
+If the project uses an edge runtime (Cloudflare Workers): Drizzle with the `http` driver,
+or Prisma with the Accelerate adapter. Standard drivers do not work on edge runtimes.
+
+---
+
+**Python**
+
+- **Django ORM** — if the backend is Django. Already decided in phase 2.2.
+- **SQLAlchemy** — for FastAPI or any non-Django backend. Use the async version (`AsyncSession`) if the backend is async. Alembic for migrations.
+
+---
+
+**Go**
+
+| Option | Choose when |
+|---|---|
+| **sqlc** | Preferred. Write raw SQL queries; sqlc generates type-safe Go code from them. No runtime magic, no reflection. |
+| **GORM** | Only if the developer is already familiar with it and prefers an active-record style. Has documented footguns with complex queries. |
+
+Default: **sqlc**. It produces the most predictable and debuggable code.
+
+---
+
+**Rust**
+
+| Option | Choose when |
+|---|---|
+| **sqlx** | Async, compile-time query verification against a live database, minimal abstraction. Strong default. |
+| **Diesel** | Synchronous, compile-time schema validation without a live database. Mature, well-tested. Choose if async is not a requirement. |
+| **SeaORM** | Async ORM with more abstraction than sqlx. If the developer wants something closer to an active-record pattern. |
+
+Default: **sqlx** for async projects (Axum), **Diesel** for sync.
+
+---
+
+**Ruby**
+
+Active Record (included with Rails) is the only practical choice for Rails projects. For
+Sinatra or non-Rails backends: Sequel.
+
+---
+
+#### At the end of this phase
+
+Record in `AGENTS.md` under `## Stack`:
+
+```
+Database:
+  Engine: [PostgreSQL | SQLite | Redis | MongoDB | ...]
+  Hosting: [managed — Neon / Supabase / Railway | self-hosted — Docker with named volume]
+  Access layer: [Prisma | Drizzle | SQLAlchemy | sqlc | sqlx | Diesel | Active Record]
+  Extensions: [pgvector | TimescaleDB | none]
+  Notes: [any relevant constraints — edge runtime, SQLite for local only, etc.]
+```
 
 Then continue to 2.4
 ---
