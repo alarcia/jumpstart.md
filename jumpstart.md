@@ -2154,6 +2154,162 @@ Then continue to 3.2.
 
 ---
 
+## 3.2 — Testing and observability
+
+> **Testing** is the practice of verifying that the application behaves as expected before it reaches users. **Observability** is the ability to understand what is happening in production after it does.
+>
+> Both are calibrated to project type. A personal tool with no users needs almost nothing here. A public-facing project with real backend logic needs a deliberate but minimal strategy.
+
+---
+
+#### When to skip this phase
+
+If the project profile from 0.2 is `type = personal tool + lifespan = throwaway`: skip entirely. Note `Testing: none` and `Observability: none` in AGENTS.md.
+
+For everything else, work through both parts below.
+
+---
+
+### Part A — Testing
+
+Do not start from "what kind of tests should this project have." Start from: **what can break silently without you noticing?**
+
+That question drives the right strategy.
+
+---
+
+#### Decision tree
+
+**Q1 — Does the project have backend logic?**
+
+- No backend, or a thin BFF with no custom logic → go to **Frontend-only track** below.
+- Yes — custom API routes, business rules, data transformations, scheduled jobs → go to **Backend track** below.
+
+---
+
+**Frontend-only track**
+
+If the project is a SPA, a static site, or a frontend that calls third-party APIs with no custom logic of its own, TypeScript in strict mode is already your most effective correctness check. There is very little to unit-test when there are no pure functions with business logic.
+
+What to add:
+
+- **TypeScript strict mode** — enabled from day one, non-negotiable. Catches entire categories of bugs at compile time.
+- **E2E smoke test (optional)** — if there is one critical user flow (login, checkout, main action), one Playwright test that walks through it is enough. Run it in CI on every push to `main`. Do not aim for coverage — aim for catching regressions on the path that matters.
+
+No unit tests unless you extract a function with non-trivial logic. If you find yourself mocking the DOM or a fetch call to test a UI component, stop — that test is not worth writing.
+
+---
+
+**Backend track**
+
+Backend code has logic that can fail silently — calculations, state transitions, data validations, integrations. That is where tests earn their cost.
+
+Priority order:
+
+1. **Integration tests on API routes** — test the full request-response cycle against a real database in test mode (not mocks). These catch the most bugs per minute of effort. If a route reads from the database, transforms data, and returns a response, test that whole path together.
+2. **Unit tests for pure logic** — only if there are functions with non-trivial rules (pricing calculations, state machine transitions, complex validations). Skip for CRUD routes with no business logic.
+3. **E2E smoke test** — same as the frontend track: one test covering the critical user-facing flow, run in CI.
+
+Do not write tests for code that TypeScript already covers, for things that are immediately visible in the UI when they break, or for infrastructure configuration.
+
+---
+
+#### Tooling
+
+| Tool | Role |
+|---|---|
+| **Vitest** | Unit and integration tests. Fast, TypeScript-native, no config needed in most stacks. |
+| **Playwright** | E2E tests. Run against a local or staging environment. |
+
+No additional test frameworks. Do not add Jest alongside Vitest — they do the same job.
+
+---
+
+#### CI integration
+
+Run tests in the test job before deploy (as defined in 1.2). The job should:
+
+- Run `vitest` for unit and integration tests.
+- Run `playwright` for E2E tests, if any exist.
+- Fail the pipeline if any test fails. The deploy job does not run.
+
+Keep test runtime under 60 seconds for unit and integration. If it grows beyond that, something is wrong with the test strategy — not a reason to parallelize.
+
+---
+
+### Part B — Observability
+
+Observability means knowing when your application is down or broken, and having enough context to understand why.
+
+For personal projects and side projects, this reduces to two concrete things:
+
+1. **You get notified when the app is unreachable.**
+2. **When an error happens, you see it with enough context to fix it.**
+
+Everything else — distributed tracing, APM dashboards, structured log aggregation — is operational overhead that is not justified until traffic or team size demands it. The hosting platform's built-in logs (Vercel, fly.io, Coolify) are sufficient for debugging in most cases.
+
+---
+
+#### Uptime monitoring
+
+**Tool: UptimeRobot** (free tier).
+
+Configure one monitor per environment that has real users (production, and staging if external people access it). UptimeRobot pings the URL every 5 minutes and sends an email when it returns a non-2xx response or times out.
+
+Setup takes two minutes. Do it before the first deploy. There is no reason to use a paid alternative at this scale.
+
+---
+
+#### Error monitoring
+
+**Tool: Sentry** — already decided in phase 2.4. Reference that decision here; do not reconfigure it.
+
+Sentry captures unhandled exceptions and promise rejections with a full stack trace, the request that triggered the error, and recent breadcrumbs. This replaces the need to dig through logs for most common errors.
+
+What to configure beyond the default SDK install:
+
+- **Source maps** — upload them in CI so stack traces point to your original source, not minified output. Most Sentry SDKs have a Vite/Next.js plugin that handles this automatically.
+- **Environment tag** — tag events with `staging` or `production` so you can filter noise from staging deploys.
+- **Ignore rules** — suppress known non-actionable errors (e.g. browser extension injections, bot traffic) to keep the alert volume meaningful.
+
+Do not set up Sentry alerting for every error by default — you will tune it out. Start with: alert on new issues only, and on a spike above your normal error rate.
+
+---
+
+#### When to add more
+
+The two tools above cover 90% of personal project observability needs. Add more only when a specific problem demands it:
+
+| Problem | Tool to add |
+|---|---|
+| You need to understand slow database queries or API response times | **OpenTelemetry** + a backend (Grafana Cloud free tier, Axiom) |
+| Log volume is high and platform logs are not searchable enough | **Axiom** or **Logtail** (both have generous free tiers) |
+| You need structured metrics over time (request rate, queue depth) | **Prometheus + Grafana**, self-hosted via Docker |
+
+None of these belong in a first deploy. Add them when you feel the absence.
+
+---
+
+#### Record in AGENTS.md
+
+```
+Testing:
+  Strategy: [frontend-only | backend | none]
+  Unit/integration: [Vitest | none]
+  E2E: [Playwright — critical flow only | none]
+  CI: [runs in test job before deploy | none]
+
+Observability:
+  Uptime: UptimeRobot — [production | production + staging]
+  Errors: Sentry — configured in 2.4
+  Logs: [platform built-in | Axiom | none]
+  APM: [none | OpenTelemetry — add when needed]
+```
+
+Then continue to 3.3.
+
+---
+
 ## Annex B — Distribution
 
 > Run this annex if or when you decide to make the project available as a distributable package. It is not necessarily part of the initial jumpstart flow.
