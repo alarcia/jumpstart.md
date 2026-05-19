@@ -2041,6 +2041,119 @@ Then continue to 3.1.
 
 ---
 
+## 3.1 — Domain and DNS
+
+> This phase establishes what domain the project will use, where DNS is managed, and what records need to be configured before going live.
+
+---
+
+#### First: does this project need a domain?
+
+> "Do you plan to put this project on a custom domain?
+>
+> - A) Yes — I already have one or plan to register one
+> - B) No — I'll access it by IP or platform URL
+> - C) Not sure yet"
+
+If **B**: record `Domain: none` in AGENTS.md and skip to 3.2.
+
+If **C**: infer from the project profile before asking further.
+
+- If hosting is a managed platform (Vercel, fly.io, Railway) → the project already has a public URL. A custom domain is likely. Ask once: *"The project will be publicly accessible. Do you want it on a custom domain, or is the platform URL fine for now?"*
+- If audience is "anyone" (0.2) → a domain is almost certainly needed. Say so and proceed as if A.
+- If audience is "just me" and hosting is self-managed → a domain is optional. Let the developer decide.
+
+If the answer is still unclear after inferring: default to proceeding. It's easier to skip domain config than to retrofit it later.
+
+---
+
+#### Production domain
+
+If the developer **already has a domain**: record it in AGENTS.md and skip to the DNS provider question.
+
+If they **don't have one yet**:
+
+> "Do you have a registrar you already use, or do you want a recommendation?"
+
+Recommended registrars:
+
+| Registrar | Best when |
+|---|---|
+| **Cloudflare Registrar** | Already using Cloudflare for DNS (at-cost pricing, no markup, seamless integration). |
+| **Porkbun** | Best prices for most common TLDs, clean UI, no dark patterns on renewal. |
+| **Namecheap** | Fine alternative if the developer is already familiar with it. |
+
+Avoid GoDaddy and Google Domains (sold to Squarespace). No strong reason to use them for new registrations.
+
+On TLD choice: `.com` is still the default for anything public-facing. `.dev`, `.app`, and `.io` are reasonable alternatives for developer tools. Country-code TLDs (`.es`, `.co.uk`) make sense when the audience is geographically local.
+
+---
+
+#### DNS provider
+
+No question needed here. The answer is **Cloudflare**.
+
+Put all DNS records on Cloudflare regardless of where the domain is registered — most registrars allow changing nameservers. Cloudflare's free tier covers everything this project needs: fast global DNS, DDoS mitigation, proxying, automatic HTTPS, and integration with most hosting platforms.
+
+If the developer has a strong reason to use a different DNS provider, note it. Otherwise, record `DNS: Cloudflare` in AGENTS.md and move on.
+
+---
+
+#### Staging domain
+
+Cross-reference with the staging decision from 1.3:
+
+- **No staging (1.3 option D)** → no staging domain needed. Skip this section.
+- **Staging on a managed platform (1.3 option C)** → the platform provides a preview URL. A custom staging domain is optional but not necessary.
+- **Staging on self-managed infrastructure (1.3 options A or B)** → ask:
+
+> "How do you want to access staging?
+>
+> - A) Subdomain of the production domain — `staging.mydomain.com`
+> - B) A separate cheap domain — `mydomain-staging.com` or similar
+> - C) Directly by server IP — staging is internal, no domain needed"
+
+Option A is the default. It keeps everything under one domain, uses the same Cloudflare zone, and costs nothing extra. Option C is fine for private staging where only the developer accesses it.
+
+---
+
+#### HTTPS
+
+HTTPS is not optional. How it is handled depends on the hosting decision from 1.3:
+
+- **Managed platform (Vercel, fly.io, Railway, Netlify)** → automatic. No action needed.
+- **Self-managed with a panel (Coolify, Dokku)** → automatic via Let's Encrypt. Coolify handles certificate issuance and renewal for any domain pointed at it.
+- **Bare self-managed (raw VPS, manual Docker)** → use Caddy as the reverse proxy. Caddy issues and renews Let's Encrypt certificates automatically with zero configuration.
+- **Cloudflare proxy enabled** → Cloudflare terminates TLS at the edge. Configure SSL mode to "Full (strict)" to also encrypt the connection between Cloudflare and the origin server.
+
+Record in AGENTS.md which approach applies. No action is needed during the jumpstart — this is resolved when the server is first configured.
+
+---
+
+#### Email DNS records
+
+If a transactional email provider was selected in 2.4, three DNS records will need to be added before sending email: SPF, DKIM, and DMARC. The exact values are provided by the email provider during setup.
+
+Flag this as a pending task in AGENTS.md: `Email DNS: SPF / DKIM / DMARC — configure during email provider setup (2.4)`. Do not attempt to configure these now — the values depend on the provider and are generated during account setup.
+
+---
+
+#### Record in AGENTS.md
+
+```
+Domain:
+  Production: [domain name | none]
+  Staging: [subdomain | separate domain | IP only | none]
+  Registrar: [Cloudflare | Porkbun | Namecheap | existing]
+  DNS provider: Cloudflare
+  HTTPS: [automatic via platform | Coolify | Caddy | Cloudflare proxy]
+  Email DNS: [pending setup | none]
+```
+
+Then continue to 3.2.
+
+---
+
 ## Annex B — Distribution
 
 > Run this annex if or when you decide to make the project available as a distributable package. It is not necessarily part of the initial jumpstart flow.
